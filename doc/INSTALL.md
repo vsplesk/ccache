@@ -19,7 +19,9 @@ To build ccache you need:
        by passing `-DCMAKE_PREFIX_PATH=/some/custom/path` to `cmake`, or
     2. Pass `-DZSTD_FROM_INTERNET=ON` to `cmake` to make it download libzstd
        from the Internet and unpack it in the local binary tree. Ccache will
-       then be linked statically to the locally built libzstd.
+       then be linked statically to the locally built libzstd. If the download
+       by cmake fails (proxy etc...), you can download manually the
+       .tgz file indicated when cmake failed and copy it to the `build/` folder.
 
   To link libzstd statically you can use `-DZSTD_LIBRARY=/path/to/libzstd.a`.
 
@@ -33,7 +35,9 @@ Optional:
        by passing `-DCMAKE_PREFIX_PATH=/some/custom/path` to `cmake`, or
     2. Pass `-DHIREDIS_FROM_INTERNET=ON` to `cmake` to make it download hiredis
        from the Internet and unpack it in the local binary tree. Ccache will
-       then be linked statically to the locally built libhiredis.
+       then be linked statically to the locally built libhiredis. If the download
+       by cmake fails (proxy etc...), you can download manually the
+       .tgz file indicated when cmake failed and copy it to the `build/` folder.
 
   To link libhiredis statically you can use
   `-DHIREDIS_LIBRARY=/path/to/libhiredis.a`.
@@ -57,6 +61,9 @@ You can set the installation directory to e.g. `/usr` by adding
 `-DCMAKE_INSTALL_PREFIX=/usr` to the `cmake` command. You can set the directory
 where the secondary configuration file should be located to e.g. `/etc` by
 adding `-DCMAKE_INSTALL_SYSCONFDIR=/etc`.
+
+On windows, you can force the gcc based compilation (provided you have added it
+to your PATH) instead of the microsoft compiler by adding the option `-G "Unix Makefiles"`.
 
 There are two ways to use ccache. You can either prefix your compilation
 commands with `ccache` or you can create a symbolic link (named as your
