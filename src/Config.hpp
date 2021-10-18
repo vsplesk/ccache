@@ -31,7 +31,16 @@
 #include <string>
 #include <unordered_map>
 
-enum class CompilerType { auto_guess, clang, gcc, nvcc, other, pump };
+enum class CompilerType {
+  auto_guess,
+  clang,
+  gcc,
+  nvcc,
+  other,
+  pump,
+  ctc,
+  cctc
+};
 
 std::string compiler_type_to_string(CompilerType compiler_type);
 

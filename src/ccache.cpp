@@ -230,6 +230,10 @@ guess_compiler(string_view path)
     return CompilerType::gcc;
   } else if (name.find("nvcc") != nonstd::string_view::npos) {
     return CompilerType::nvcc;
+  } else if (name.find("cctc") != nonstd::string_view::npos) {
+    return CompilerType::cctc;
+  } else if (name.find("ctc") != nonstd::string_view::npos) {
+    return CompilerType::ctc;
   } else if (name == "pump" || name == "distcc-pump") {
     return CompilerType::pump;
   } else {
@@ -1915,6 +1919,7 @@ cache_compilation(int argc, const char* const* argv)
   Args saved_orig_args;
   nonstd::optional<uint32_t> original_umask;
   std::string saved_temp_dir;
+  CompilerType compiler_type;
 
   {
     Context ctx;
@@ -1931,6 +1936,7 @@ cache_compilation(int argc, const char* const* argv)
     const auto result = do_cache_compilation(ctx, argv);
     const auto& counters = result ? *result : result.error().counters();
     ctx.storage.primary.increment_statistics(counters);
+    compiler_type = ctx.config.compiler_type();
     if (!result) {
       if (result.error().exit_code()) {
         return *result.error().exit_code();
@@ -1961,7 +1967,7 @@ cache_compilation(int argc, const char* const* argv)
       umask(*original_umask);
     }
     auto execv_argv = saved_orig_args.to_argv();
-    execute_noreturn(execv_argv.data(), saved_temp_dir);
+    execute_noreturn(execv_argv.data(), saved_temp_dir, compiler_type);
     throw core::Fatal(
       "execute_noreturn of {} failed: {}", execv_argv[0], strerror(errno));
   }
