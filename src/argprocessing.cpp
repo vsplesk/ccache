@@ -896,9 +896,30 @@ process_arg(const Context& ctx,
   }
 
   // Same as above but options with concatenated argument beginning with a
-  // slash.
+  // slash containing a colon on windows. Actually, there are three possible
+  // forms for this, e.g. with -isystem:
+  // - -isystem/home/mypath (standard posix)
+  // - -isystem/Z:/mypath (mingw on Linux)
+  // - -isystemC:/Users/home/mypath (native windows)
+  // we need to figure out to which one this belongs, keeping the logic
   if (args[i][0] == '-') {
+    // start by looking for a slash (posix)
     size_t slash_pos = args[i].find('/');
+#ifdef _WIN32
+    // if there is a slash, check if it matches an option, otherwise, try
+    // the colon and remove the drive letter to get the option
+    if (slash_pos != std::string::npos) {
+      std::string option = args[i].substr(0, slash_pos);
+      if (!compopt_takes_concat_arg(option) || !compopt_takes_path(option)) {
+        slash_pos = args[i].find(':');
+        if (slash_pos != std::string::npos) {
+          // Remove the driver letter: it is not possible for slash_pos to
+          // become negative since the first char is '-' as tested above.
+          slash_pos = slash_pos - 1;
+        }
+      }
+    }
+#endif
     if (slash_pos != std::string::npos) {
       std::string option = args[i].substr(0, slash_pos);
       if (compopt_takes_concat_arg(option) && compopt_takes_path(option)) {
