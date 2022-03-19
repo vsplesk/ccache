@@ -175,12 +175,6 @@ base_tests() {
     expect_stat unsupported_compiler_option 1
 
     # -------------------------------------------------------------------------
-    TEST "Compiler produced stdout"
-
-    $CCACHE echo foo -c test1.c >/dev/null
-    expect_stat compiler_produced_stdout 1
-
-    # -------------------------------------------------------------------------
     TEST "Output to directory"
 
     mkdir testd
@@ -312,7 +306,7 @@ fi
 
     $CCACHE_COMPILE -c test1.c
     result_file=$(find $CCACHE_DIR -name '*R')
-    if ! $CCACHE --dump-result $result_file | grep 'Compression type: zstd' >/dev/null 2>&1; then
+    if ! $CCACHE --inspect $result_file | grep 'Compression type: zstd' >/dev/null 2>&1; then
         test_failed "Result file not uncompressed according to metadata"
     fi
     if [ $(file_size $result_file) -ge $(file_size test1.o) ]; then
@@ -1108,16 +1102,17 @@ EOF
 
     echo '#warning This triggers a compiler warning' >stderr.c
 
-    $COMPILER -Wall -c stderr.c -fsyntax-only 2>reference_stderr.txt
+    $COMPILER -Wall stderr.c -fsyntax-only 2>reference_stderr.txt
 
     expect_contains reference_stderr.txt "This triggers a compiler warning"
 
-    $CCACHE_COMPILE -Wall -c stderr.c -fsyntax-only 2>stderr.txt
+    $CCACHE_COMPILE -Wall stderr.c -fsyntax-only 2>stderr.txt
     expect_stat preprocessed_cache_hit 0
     expect_stat cache_miss 1
     expect_stat files_in_cache 1
     expect_equal_content reference_stderr.txt stderr.txt
 
+    # Intentionally compiling with "-c" here but not above.
     $CCACHE_COMPILE -Wall -c stderr.c -fsyntax-only 2>stderr.txt
     expect_stat preprocessed_cache_hit 1
     expect_stat cache_miss 1
@@ -1211,6 +1206,36 @@ EOF
     expect_stat cache_miss 1
     expect_equal_content reference.stderr test.stderr
     expect_equal_content reference.d test.d
+
+    # -------------------------------------------------------------------------
+    TEST "Caching stdout and stderr"
+
+    cat >compiler.sh <<EOF
+#!/bin/sh
+if [ \$1 = -E ] || ! echo "\$*" | grep -q '\.i\$'; then
+    printf "cpp_err|" >&2
+fi
+if [ \$1 != -E ]; then
+    printf "cc_err|" >&2
+    printf "cc_out|"
+fi
+CCACHE_DISABLE=1 # If $COMPILER happens to be a ccache symlink...
+export CCACHE_DISABLE
+exec $COMPILER "\$@"
+EOF
+    chmod +x compiler.sh
+
+    $CCACHE ./compiler.sh -c test1.c >stdout 2>stderr
+    expect_stat preprocessed_cache_hit 0
+    expect_stat cache_miss 1
+    expect_content stdout "cc_out|"
+    expect_content stderr "cpp_err|cc_err|"
+
+    $CCACHE ./compiler.sh -c test1.c >stdout 2>stderr
+    expect_stat preprocessed_cache_hit 1
+    expect_stat cache_miss 1
+    expect_content stdout "cc_out|"
+    expect_content stderr "cpp_err|cc_err|"
 
     # -------------------------------------------------------------------------
     TEST "--zero-stats"
@@ -1415,6 +1440,21 @@ EOF
     $CCACHE_COMPILE -c incbin.s
     expect_stat preprocessed_cache_hit 0
     expect_stat cache_miss 0
+    expect_stat unsupported_code_directive 2
+
+    cat <<EOF >incbin.cpp
+      struct A {
+        void incbin() const {}
+      };
+      void f()
+      {
+        A a;
+        a.incbin();
+      }
+EOF
+    $CCACHE_COMPILE -x c++ -c incbin.cpp
+    expect_stat preprocessed_cache_hit 0
+    expect_stat cache_miss 1
     expect_stat unsupported_code_directive 2
 fi
 

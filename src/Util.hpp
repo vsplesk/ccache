@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2021 Joel Rosdahl and other contributors
+// Copyright (C) 2019-2022 Joel Rosdahl and other contributors
 //
 // See doc/AUTHORS.adoc for a complete list of contributors.
 //
@@ -188,6 +188,11 @@ const char* get_hostname();
 std::string get_relative_path(nonstd::string_view dir,
                               nonstd::string_view path);
 
+#ifndef _WIN32
+// Get process umask.
+mode_t get_umask();
+#endif
+
 // Hard-link `oldpath` to `newpath`. Throws `core::Error` on error.
 void hard_link(const std::string& oldpath, const std::string& newpath);
 
@@ -219,6 +224,10 @@ int_to_big_endian(int8_t value, uint8_t* buffer)
 {
   buffer[0] = value;
 }
+
+// Determine if `path` is an absolute path with prefix, returning the split
+// point.
+nonstd::optional<size_t> is_absolute_path_with_prefix(nonstd::string_view path);
 
 // Test if a file is on nfs.
 //
@@ -304,6 +313,12 @@ std::string read_link(const std::string& path);
 std::string real_path(const std::string& path,
                       bool return_empty_on_error = false);
 
+// Return contents of a text file as a UTF-8 encoded string.
+//
+// Throws `core::Error` on error. The description contains the error message
+// without the path.
+std::string read_text_file(const std::string& path, size_t size_hint = 0);
+
 // Return a view into `path` containing the given path without the filename
 // extension as determined by `get_extension()`.
 nonstd::string_view remove_extension(nonstd::string_view path);
@@ -318,11 +333,11 @@ void rename(const std::string& oldpath, const std::string& newpath);
 bool same_program_name(nonstd::string_view program_name,
                        nonstd::string_view canonical_program_name);
 
-// Send `text` to STDERR_FILENO, optionally stripping ANSI color sequences if
-// `ctx.args_info.strip_diagnostics_colors` is true and rewriting paths to
-// absolute if `ctx.config.absolute_paths_in_stderr` is true. Throws
+// Send `text` to file descriptor `fd`, optionally stripping ANSI color
+// sequences if `ctx.args_info.strip_diagnostics_colors` is true and rewriting
+// paths to absolute if `ctx.config.absolute_paths_in_stderr` is true. Throws
 // `core::Error` on error.
-void send_to_stderr(const Context& ctx, const std::string& text);
+void send_to_fd(const Context& ctx, const std::string& text, int fd);
 
 // Set the FD_CLOEXEC on file descriptor `fd`. This is a NOP on Windows.
 void set_cloexec_flag(int fd);

@@ -1,4 +1,4 @@
-// Copyright (C) 2021 Joel Rosdahl and other contributors
+// Copyright (C) 2021-2022 Joel Rosdahl and other contributors
 //
 // See doc/AUTHORS.adoc for a complete list of contributors.
 //
@@ -39,6 +39,35 @@ is_absolute_path(nonstd::string_view path)
   }
 #endif
   return !path.empty() && path[0] == '/';
+}
+
+bool
+path_starts_with(nonstd::string_view path, nonstd::string_view prefix)
+{
+  for (size_t i = 0, j = 0; i < path.length() && j < prefix.length();
+       ++i, ++j) {
+#ifdef _WIN32
+    // Skip escaped backslashes \\\\ as seen by the preprocessor.
+    if (i > 0 && path[i] == '\\' && path[i - 1] == '\\') {
+      ++i;
+    }
+    if (j > 0 && prefix[j] == '\\' && prefix[j - 1] == '\\') {
+      ++j;
+    }
+
+    // Handle back and forward slashes as equal.
+    if (path[i] == '/' && prefix[j] == '\\') {
+      continue;
+    }
+    if (path[i] == '\\' && prefix[j] == '/') {
+      continue;
+    }
+#endif
+    if (path[i] != prefix[j]) {
+      return false;
+    }
+  }
+  return true;
 }
 
 std::vector<std::string>

@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2021 Joel Rosdahl and other contributors
+// Copyright (C) 2019-2022 Joel Rosdahl and other contributors
 //
 // See doc/AUTHORS.adoc for a complete list of contributors.
 //
@@ -436,6 +436,20 @@ TEST_CASE("Util::int_to_big_endian")
   CHECK(bytes[7] == 0xca);
 }
 
+TEST_CASE("Util::is_absolute_path_with_prefix")
+{
+  CHECK(*Util::is_absolute_path_with_prefix("-I/c/foo") == 2);
+  CHECK(*Util::is_absolute_path_with_prefix("-W,path/c/foo") == 7);
+  CHECK(!Util::is_absolute_path_with_prefix("-DMACRO"));
+#ifdef _WIN32
+  CHECK(*Util::is_absolute_path_with_prefix("-I/C:/foo") == 2);
+  CHECK(*Util::is_absolute_path_with_prefix("-IC:/foo") == 2);
+  CHECK(*Util::is_absolute_path_with_prefix("-W,path/c:/foo") == 7);
+  CHECK(*Util::is_absolute_path_with_prefix("-W,pathc:/foo") == 7);
+  CHECK(!Util::is_absolute_path_with_prefix("-opt:value"));
+#endif
+}
+
 TEST_CASE("Util::is_dir_separator")
 {
   CHECK(!Util::is_dir_separator('x'));
@@ -489,6 +503,14 @@ TEST_CASE("Util::make_relative_path")
       make_relative_path(
         actual_cwd.substr(0, 3), actual_cwd, apparent_cwd, actual_cwd + "/x")
       == "./x");
+    CHECK(
+      make_relative_path(
+        actual_cwd.substr(0, 3), actual_cwd, apparent_cwd, actual_cwd + "\\x")
+      == ".\\x");
+    CHECK(
+      make_relative_path(
+        actual_cwd.substr(0, 3), actual_cwd, apparent_cwd, actual_cwd + "\\\\x")
+      == ".\\x");
 #else
     CHECK(make_relative_path("/", actual_cwd, apparent_cwd, actual_cwd + "/x")
           == "./x");
@@ -649,6 +671,40 @@ TEST_CASE("Util::read_file and Util::write_file")
 
   CHECK_THROWS_WITH(Util::write_file("does/not/exist", "does/not/exist"),
                     "No such file or directory");
+}
+
+TEST_CASE("Util::{read,write,copy}_file with binary files")
+{
+  TestContext test_context;
+
+  std::string data;
+  for (size_t i = 0; i < 512; ++i) {
+    data.push_back(static_cast<char>((32 + i) % 256));
+  }
+
+  Util::write_file("test", data);
+  CHECK(Util::read_file("test") == data);
+
+  Util::copy_file("test", "copy");
+  CHECK(Util::read_file("copy") == data);
+}
+
+TEST_CASE("Util::read_text_file with UTF-16 little endian encoding")
+{
+  TestContext test_context;
+
+  std::string data;
+  data.push_back(static_cast<unsigned char>(0xff));
+  data.push_back(static_cast<unsigned char>(0xfe));
+  data.push_back('a');
+  data.push_back('\0');
+  data.push_back('b');
+  data.push_back('\0');
+  data.push_back('c');
+  data.push_back('\0');
+
+  Util::write_file("test", data);
+  CHECK(Util::read_text_file("test") == "abc");
 }
 
 TEST_CASE("Util::remove_extension")

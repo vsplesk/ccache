@@ -1,4 +1,4 @@
-// Copyright (C) 2020-2021 Joel Rosdahl and other contributors
+// Copyright (C) 2020-2022 Joel Rosdahl and other contributors
 //
 // See doc/AUTHORS.adoc for a complete list of contributors.
 //
@@ -29,9 +29,7 @@ class ResultRetriever : public Result::Reader::Consumer
 public:
   ResultRetriever(Context& ctx, bool rewrite_dependency_target);
 
-  void on_header(core::CacheEntryReader& cache_entry_reader,
-                 uint8_t result_format_version) override;
-  void on_entry_start(uint32_t entry_number,
+  void on_entry_start(uint8_t entry_number,
                       Result::FileType file_type,
                       uint64_t file_len,
                       nonstd::optional<std::string> raw_file) override;

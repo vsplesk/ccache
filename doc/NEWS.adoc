@@ -1,5 +1,156 @@
 = Ccache news
 
+== Ccache 4.6
+
+Release date: 2022-02-27
+
+
+=== New features
+
+- Added support for caching calls to Microsoft Visual C++ (MSVC) and clang-cl
+  (MSVC compatibility for Clang). +
+  [small]#_[contributed by Cristian Adam, Luboš Luňák, Orgad Shaneh and Joel
+  Rosdahl]_#
+
+- Added an option to use a bearer token with the HTTP backend. This makes it
+  possible to use e.g. Google Cloud Storage as a secondary storage backend. +
+  [small]#_[contributed by Delgan]_#
+
+- Added support for caching standard output from the compiler. +
+  [small]#_[contributed by Luboš Luňák and Joel Rosdahl]_#
+
+- Added a new `--inspect` option for debugging cache entries, replacing the
+  previous `--dump-manifest` and `--dump-result` options. +
+  [small]#_[contributed by Joel Rosdahl]_#
+
+- Enabled HTTP keep-alive by default. +
+  [small]#_[contributed by Joel Rosdahl]_#
+
+
+=== Bug fixes
+
+- Fixed copying of binary files on Windows. +
+  [small]#_[contributed by R. Voggenauer]_#
+
+- Improved detection of the `.incbin` assembler directive to reduce false
+  positives. +
+  [small]#_[contributed by Alexey Sheplyakov]_#
+
+- Ccache now verifies that `/run/user/<UID>/ccache-tmp` is writable before using
+  it for temporary files. +
+  [small]#_[contributed by Joel Rosdahl]_#
+
+- Fixed statistics output for secondary storage. +
+  [small]#_[contributed by Orgad Shaneh]_#
+
+- Fixed a problem when copying a cache entry from secondary storage into an
+  empty primary storage. +
+  [small]#_[contributed by Joel Rosdahl]_#
+
+- Visual Studio .rsp files with UTF-16LE encoding are now handled correctly. +
+  [small]#_[contributed by Vili Väinölä]_#
+
+- Made conversion to relative paths more reliable on Windows. +
+  [small]#_[contributed by Marius Zwicker]_#
+
+- The process umask is now respected when making hard linked files read only. +
+  [small]#_[contributed by Joel Rosdahl]_#
+
+- A forced recache is no longer considered a "`direct cache miss`". +
+  [small]#_[contributed by Joel Rosdahl]_#
+
+
+=== Documentation improvements
+
+- Corrected reference to the `debug_dir` option. +
+  [small]#_[contributed by Joel Rosdahl]_#
+
+- Improved documentation of `--config-path`. +
+  [small]#_[contributed by Joel Rosdahl]_#
+
+- Added documentation that compiler plugins are hashed too. +
+  [small]#_[contributed by Philipp Gortan]_#
+
+
+=== Test improvements
+
+- The "`trim_dir`" test suite is now only run when cleanup tests are enabled. +
+  [small]#_[contributed by Joel Rosdahl]_#
+
+
+== Ccache 4.5.1
+
+Release date: 2021-11-17
+
+
+=== Bug fixes
+
+- Fixed entry_size field for result entries. This bug affected the recompression
+  feature (`-X`/`--recompress`) in ccache 4.5. +
+  [small]#_[contributed by Joel Rosdahl]_#
+
+- The actual compression level is now once again stored in the cache entry
+  header. +
+  [small]#_[contributed by Joel Rosdahl]_#
+
+- Corrected error handling for non-constructible secondary storage backends. For
+  instance, this avoids a crash when a Redis server can't be reached. +
+  [small]#_[contributed by Joel Rosdahl]_#
+
+
+== Ccache 4.5
+
+Release date: 2021-11-13
+
+
+=== New features
+
+- Made various improvements to the cache entry format. Among other things, the
+  header now contains a creation timestamp and a note of the ccache version used
+  to create the entry. The cache entry checksum has also been upgraded to use
+  128-bit XXH3 instead 64-bit XXH3. +
+  [small]#_[contributed by Joel Rosdahl]_#
+
+- Added support for cache namespaces. If a namespace configured, e.g. using
+  `CCACHE_NAMESPACE=some_string`, the namespace string will be added to the
+  hashed data for each compilation. This will make the associated cache entries
+  logically separate from cache entries in other namespaces, but they will still
+  share the same storage space. Cache entries can also be selectively removed
+  from the primary cache with the new command line option `--evict-namespace`,
+  potentially in combination with `--evict-older-than`. +
+  [small]#_[contributed by Joel Rosdahl]_#
+
+- Made HTTP keep-alive configurable, defaulting to off for now. +
+  [small]#_[contributed by Gregor Jasny]_#
+
+- Added support for rewriting absolute path to Clang option `--gcc-toolchain`. +
+  [small]#_[contributed by Joel Rosdahl]_#
+
+
+=== Compatibility notes
+
+- A consequence of the changed cache entry format is that ccache 4.5 will not
+  share cache entries with earlier versions. Different ccache versions can
+  however still use the same cache storage without any issues.
+
+
+=== Bug fixes
+
+- Fixed a problem with special characters in the user info part of URLs for HTTP
+  storage. +
+  [small]#_[contributed by Russell McClellan]_#
+
+- Fixed win32 log messages about file locks. +
+  [small]#_[contributed by Luboš Luňák]_#
+
+- Fixed debug directory handling on Windows. +
+  [small]#_[contributed by Luboš Luňák]_#
+
+- The hard link and file clone features are now disabled when secondary storage
+  is used since they only work for the local primary cache. +
+  [small]#_[contributed by Joel Rosdahl]_#
+
+
 == Ccache 4.4.2
 
 Release date: 2021-09-28

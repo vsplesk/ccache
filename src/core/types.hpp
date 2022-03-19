@@ -19,9 +19,12 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 
 namespace core {
 
 enum class CacheEntryType : uint8_t { result = 0, manifest = 1 };
+
+std::string to_string(CacheEntryType type);
 
 } // namespace core

@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2021 Joel Rosdahl and other contributors
+// Copyright (C) 2019-2022 Joel Rosdahl and other contributors
 //
 // See doc/AUTHORS.adoc for a complete list of contributors.
 //
@@ -26,6 +26,7 @@
 #include "Win32Util.hpp"
 #include "fmtmacros.hpp"
 
+#include <Finalizer.hpp>
 #include <core/exceptions.hpp>
 #include <core/wincompat.hpp>
 #include <util/path.hpp>
@@ -47,7 +48,9 @@ extern "C" {
 
 #include <algorithm>
 #include <climits>
+#include <codecvt>
 #include <fstream>
+#include <locale>
 
 #ifndef HAVE_DIRENT_H
 #  include <filesystem>
@@ -206,6 +209,14 @@ rewrite_stderr_to_absolute_paths(string_view text)
   return result;
 }
 
+bool
+has_utf16_le_bom(string_view text)
+{
+  return text.size() > 1
+         && ((static_cast<uint8_t>(text[0]) == 0xff
+              && static_cast<uint8_t>(text[1]) == 0xfe));
+}
+
 } // namespace
 
 namespace Util {
@@ -300,9 +311,11 @@ clone_hard_link_or_copy_file(const Context& ctx,
     LOG("Hard linking {} to {}", source, dest);
     try {
       Util::hard_link(source, dest);
-      if (chmod(dest.c_str(), 0444) != 0) {
+#ifndef _WIN32
+      if (chmod(dest.c_str(), 0444 & ~Util::get_umask()) != 0) {
         LOG("Failed to chmod: {}", strerror(errno));
       }
+#endif
       return;
     } catch (const core::Error& e) {
       LOG_RAW(e.what());
@@ -354,7 +367,7 @@ copy_fd(int fd_in, int fd_out)
 void
 copy_file(const std::string& src, const std::string& dest, bool via_tmp_file)
 {
-  Fd src_fd(open(src.c_str(), O_RDONLY));
+  Fd src_fd(open(src.c_str(), O_RDONLY | O_BINARY));
   if (!src_fd) {
     throw core::Error("{}: {}", src, strerror(errno));
   }
@@ -731,6 +744,21 @@ get_relative_path(string_view dir, string_view path)
   return result.empty() ? "." : result;
 }
 
+#ifndef _WIN32
+mode_t
+get_umask()
+{
+  static bool mask_retrieved = false;
+  static mode_t mask;
+  if (!mask_retrieved) {
+    mask = umask(0);
+    umask(mask);
+    mask_retrieved = true;
+  }
+  return mask;
+}
+#endif
+
 void
 hard_link(const std::string& oldpath, const std::string& newpath)
 {
@@ -753,6 +781,31 @@ hard_link(const std::string& oldpath, const std::string& newpath)
                       Win32Util::error_message(error));
   }
 #endif
+}
+
+nonstd::optional<size_t>
+is_absolute_path_with_prefix(nonstd::string_view path)
+{
+#ifdef _WIN32
+  const char delim[] = "/\\";
+#else
+  const char delim[] = "/";
+#endif
+  auto split_pos = path.find_first_of(delim);
+  if (split_pos != std::string::npos) {
+#ifdef _WIN32
+    // -I/C:/foo and -I/c/foo will already be handled by delim_pos correctly
+    // resulting in -I and /C:/foo or /c/foo respectively. -IC:/foo will not as
+    // we would get -IC: and /foo.
+    if (split_pos > 0 && path[split_pos - 1] == ':') {
+      split_pos = split_pos - 2;
+    }
+#endif
+    // This is not redundant on some platforms, so nothing to simplify.
+    // NOLINTNEXTLINE(readability-simplify-boolean-expr)
+    return split_pos;
+  }
+  return nonstd::nullopt;
 }
 
 #if defined(HAVE_LINUX_FS_H) || defined(HAVE_STRUCT_STATFS_F_FSTYPENAME)
@@ -804,7 +857,7 @@ make_relative_path(const std::string& base_dir,
                    const std::string& apparent_cwd,
                    nonstd::string_view path)
 {
-  if (base_dir.empty() || !util::starts_with(path, base_dir)) {
+  if (base_dir.empty() || !util::path_starts_with(path, base_dir)) {
     return std::string(path);
   }
 
@@ -1133,6 +1186,21 @@ real_path(const std::string& path, bool return_empty_on_error)
   return resolved ? resolved : (return_empty_on_error ? "" : path);
 }
 
+std::string
+read_text_file(const std::string& path, size_t size_hint)
+{
+  std::string result = read_file(path, size_hint);
+  // Convert to UTF-8 if the content starts with a UTF-16 little-endian BOM.
+  if (has_utf16_le_bom(result)) {
+    result.erase(0, 2); // Remove BOM.
+    std::u16string result_as_u16((result.size() / 2) + 1, '\0');
+    result_as_u16 = reinterpret_cast<const char16_t*>(result.c_str());
+    std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t> converter;
+    result = converter.to_bytes(result_as_u16);
+  }
+  return result;
+}
+
 string_view
 remove_extension(string_view path)
 {
@@ -1175,10 +1243,18 @@ same_program_name(nonstd::string_view program_name,
 }
 
 void
-send_to_stderr(const Context& ctx, const std::string& text)
+send_to_fd(const Context& ctx, const std::string& text, int fd)
 {
   const std::string* text_to_send = &text;
   std::string modified_text;
+
+#ifdef _WIN32
+  // stdout/stderr are normally opened in text mode, which would convert
+  // newlines a second time since we treat output as binary data. Make sure to
+  // switch to binary mode.
+  int oldmode = _setmode(fd, _O_BINARY);
+  Finalizer binary_mode_restorer([=] { _setmode(fd, oldmode); });
+#endif
 
   if (ctx.args_info.strip_diagnostics_colors) {
     try {
@@ -1195,9 +1271,9 @@ send_to_stderr(const Context& ctx, const std::string& text)
   }
 
   try {
-    write_fd(STDERR_FILENO, text_to_send->data(), text_to_send->length());
+    write_fd(fd, text_to_send->data(), text_to_send->length());
   } catch (core::Error& e) {
-    throw core::Error("Failed to write to stderr: {}", e.what());
+    throw core::Error("Failed to write to {}: {}", fd, e.what());
   }
 }
 

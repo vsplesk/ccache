@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2021 Joel Rosdahl and other contributors
+// Copyright (C) 2019-2022 Joel Rosdahl and other contributors
 //
 // See doc/AUTHORS.adoc for a complete list of contributors.
 //
@@ -241,14 +241,16 @@ parse_compiler_type(const std::string& value)
 {
   if (value == "clang") {
     return CompilerType::clang;
+  } else if (value == "clang-cl") {
+    return CompilerType::clang_cl;
   } else if (value == "gcc") {
     return CompilerType::gcc;
+  } else if (value == "msvc") {
+    return CompilerType::msvc;
   } else if (value == "nvcc") {
     return CompilerType::nvcc;
   } else if (value == "other") {
     return CompilerType::other;
-  } else if (value == "pump") {
-    return CompilerType::pump;
   } else if (value == "cctc") {
     return CompilerType::cctc;
   } else if (value == "ctc") {
@@ -453,9 +455,12 @@ compiler_type_to_string(CompilerType compiler_type)
   switch (compiler_type) {
   case CompilerType::auto_guess:
     return "auto";
+  case CompilerType::clang_cl:
+    return "clang-cl";
 
     CASE(clang);
     CASE(gcc);
+    CASE(msvc);
     CASE(nvcc);
     CASE(other);
     CASE(pump);
@@ -1033,11 +1038,14 @@ Config::check_key_tables_consistency()
 std::string
 Config::default_temporary_dir(const std::string& cache_dir)
 {
+  static const std::string run_user_tmp_dir = [] {
 #ifdef HAVE_GETEUID
-  std::string user_tmp_dir = FMT("/run/user/{}", geteuid());
-  if (Stat::stat(user_tmp_dir).is_directory()) {
-    return user_tmp_dir + "/ccache-tmp";
-  }
+    auto dir = FMT("/run/user/{}/ccache-tmp", geteuid());
+    if (Util::create_dir(dir)) {
+      return dir;
+    }
 #endif
-  return cache_dir + "/tmp";
+    return std::string();
+  }();
+  return !run_user_tmp_dir.empty() ? run_user_tmp_dir : cache_dir + "/tmp";
 }

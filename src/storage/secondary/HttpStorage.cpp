@@ -1,4 +1,4 @@
-// Copyright (C) 2021 Joel Rosdahl and other contributors
+// Copyright (C) 2021-2022 Joel Rosdahl and other contributors
 //
 // See doc/AUTHORS.adoc for a complete list of contributors.
 //
@@ -110,13 +110,15 @@ HttpStorageBackend::HttpStorageBackend(const Params& params)
   m_http_client.set_default_headers({
     {"User-Agent", FMT("{}/{}", CCACHE_NAME, CCACHE_VERSION)},
   });
-  m_http_client.set_keep_alive(false);
+  m_http_client.set_keep_alive(true);
 
   auto connect_timeout = k_default_connect_timeout;
   auto operation_timeout = k_default_operation_timeout;
 
   for (const auto& attr : params.attributes) {
-    if (attr.key == "connect-timeout") {
+    if (attr.key == "bearer-token") {
+      m_http_client.set_bearer_token_auth(attr.value.c_str());
+    } else if (attr.key == "connect-timeout") {
       connect_timeout = parse_timeout_attribute(attr.value);
     } else if (attr.key == "keep-alive") {
       m_http_client.set_keep_alive(attr.value == "true");
@@ -153,7 +155,7 @@ HttpStorageBackend::get(const Digest& key)
     LOG("Failed to get {} from http storage: {} ({})",
         url_path,
         to_string(result.error()),
-        result.error());
+        static_cast<int>(result.error()));
     return nonstd::make_unexpected(Failure::error);
   }
 
@@ -179,7 +181,7 @@ HttpStorageBackend::put(const Digest& key,
       LOG("Failed to check for {} in http storage: {} ({})",
           url_path,
           to_string(result.error()),
-          result.error());
+          static_cast<int>(result.error()));
       return nonstd::make_unexpected(Failure::error);
     }
 
@@ -199,7 +201,7 @@ HttpStorageBackend::put(const Digest& key,
     LOG("Failed to put {} to http storage: {} ({})",
         url_path,
         to_string(result.error()),
-        result.error());
+        static_cast<int>(result.error()));
     return nonstd::make_unexpected(Failure::error);
   }
 
@@ -223,7 +225,7 @@ HttpStorageBackend::remove(const Digest& key)
     LOG("Failed to delete {} from http storage: {} ({})",
         url_path,
         to_string(result.error()),
-        result.error());
+        static_cast<int>(result.error()));
     return nonstd::make_unexpected(Failure::error);
   }
 
@@ -280,6 +282,15 @@ HttpStorage::redact_secrets(Backend::Params& params) const
   const auto user_info = util::split_once(url.user_info(), ':');
   if (user_info.second) {
     url.user_info(FMT("{}:{}", user_info.first, k_redacted_password));
+  }
+
+  auto bearer_token_attribute =
+    std::find_if(params.attributes.begin(),
+                 params.attributes.end(),
+                 [&](const auto& attr) { return attr.key == "bearer-token"; });
+  if (bearer_token_attribute != params.attributes.end()) {
+    bearer_token_attribute->value = k_redacted_password;
+    bearer_token_attribute->raw_value = k_redacted_password;
   }
 }
 
