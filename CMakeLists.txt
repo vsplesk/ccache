@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.10)
 
-project(ccache LANGUAGES C CXX)
+project(ccache LANGUAGES C CXX ASM ASM_MASM)
 if(MSVC)
   enable_language(ASM_MASM)
 else()
@@ -96,12 +96,12 @@ if(MSVC AND NOT CMAKE_TOOLCHAIN_FILE MATCHES "vcpkg|conan")
 endif()
 
 option(ZSTD_FROM_INTERNET "Download and use libzstd from the Internet" ${ZSTD_FROM_INTERNET_DEFAULT})
-find_package(zstd 1.1.2 REQUIRED)
+find_package(zstd 1.1.2 MODULE REQUIRED)
 
 option(REDIS_STORAGE_BACKEND "Enable Redis secondary storage" ON)
 if(REDIS_STORAGE_BACKEND)
   option(HIREDIS_FROM_INTERNET "Download and use libhiredis from the Internet" ${HIREDIS_FROM_INTERNET_DEFAULT})
-  find_package(hiredis 0.13.3 REQUIRED)
+  find_package(hiredis 0.13.3 MODULE REQUIRED)
 endif()
 
 #

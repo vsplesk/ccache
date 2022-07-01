@@ -1,4 +1,4 @@
-// Copyright (C) 2021 Joel Rosdahl and other contributors
+// Copyright (C) 2021-2022 Joel Rosdahl and other contributors
 //
 // See doc/AUTHORS.adoc for a complete list of contributors.
 //
@@ -113,6 +113,9 @@ const StatisticsField k_statistics_fields[] = {
   FIELD(unsupported_compiler_option,
         "Unsupported compiler option",
         FLAG_UNCACHEABLE),
+  FIELD(unsupported_environment_variable,
+        "Unsupported environment variable",
+        FLAG_UNCACHEABLE),
   FIELD(unsupported_source_language,
         "Unsupported source language",
         FLAG_UNCACHEABLE),
@@ -159,8 +162,10 @@ Statistics::get_statistics_ids() const
 {
   std::vector<std::string> result;
   for (const auto& field : k_statistics_fields) {
-    if (m_counters.get(field.statistic) != 0 && !(field.flags & FLAG_NOZERO)) {
-      result.emplace_back(field.id);
+    if (!(field.flags & FLAG_NOZERO)) {
+      for (size_t i = 0; i < m_counters.get(field.statistic); ++i) {
+        result.emplace_back(field.id);
+      }
     }
   }
   std::sort(result.begin(), result.end());

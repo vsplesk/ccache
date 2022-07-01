@@ -1,4 +1,4 @@
-// Copyright (C) 2021 Joel Rosdahl and other contributors
+// Copyright (C) 2021-2022 Joel Rosdahl and other contributors
 //
 // See doc/AUTHORS.adoc for a complete list of contributors.
 //
@@ -127,8 +127,8 @@ RedisStorageBackend::RedisStorageBackend(const Params& params)
   }
 
   connect(url, connect_timeout.count(), operation_timeout.count());
-  select_database(url);
   authenticate(url);
+  select_database(url);
 }
 
 inline bool
@@ -180,11 +180,11 @@ RedisStorageBackend::put(const Digest& key,
     const auto reply = redis_command("EXISTS %s", key_string.c_str());
     if (!reply) {
       return nonstd::make_unexpected(reply.error());
-    } else if ((*reply)->type == REDIS_REPLY_INTEGER && (*reply)->integer > 0) {
+    } else if ((*reply)->type != REDIS_REPLY_INTEGER) {
+      LOG("Unknown reply type: {}", (*reply)->type);
+    } else if ((*reply)->integer > 0) {
       LOG("Entry {} already in Redis", key_string);
       return false;
-    } else {
-      LOG("Unknown reply type: {}", (*reply)->type);
     }
   }
 
@@ -230,11 +230,11 @@ RedisStorageBackend::connect(const Url& url,
   ASSERT(url.path().empty() || url.path()[0] == '/');
 
   LOG("Redis connecting to {}:{} (connect timeout {} ms)",
-      url.host(),
+      host,
       port,
       connect_timeout);
-  m_context.reset(redisConnectWithTimeout(
-    url.host().c_str(), port, to_timeval(connect_timeout)));
+  m_context.reset(
+    redisConnectWithTimeout(host.c_str(), port, to_timeval(connect_timeout)));
 
   if (!m_context) {
     throw Failed("Redis context construction error");
@@ -269,8 +269,7 @@ RedisStorageBackend::select_database(const Url& url)
 
   if (db_number != 0) {
     LOG("Redis SELECT {}", db_number);
-    const auto reply =
-      util::value_or_throw<Failed>(redis_command("SELECT %d", db_number));
+    util::value_or_throw<Failed>(redis_command("SELECT %d", db_number));
   }
 }
 

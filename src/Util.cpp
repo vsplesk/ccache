@@ -103,6 +103,7 @@ extern "C" {
 using nonstd::nullopt;
 using nonstd::optional;
 using nonstd::string_view;
+using IncludeDelimiter = util::Tokenizer::IncludeDelimiter;
 
 namespace {
 
@@ -159,10 +160,13 @@ template<typename T>
 std::vector<T>
 split_into(string_view string,
            const char* separators,
-           util::Tokenizer::Mode mode)
+           util::Tokenizer::Mode mode,
+           IncludeDelimiter include_delimiter)
+
 {
   std::vector<T> result;
-  for (const auto token : util::Tokenizer(string, separators, mode)) {
+  for (const auto token :
+       util::Tokenizer(string, separators, mode, include_delimiter)) {
     result.emplace_back(token);
   }
   return result;
@@ -174,8 +178,11 @@ rewrite_stderr_to_absolute_paths(string_view text)
   static const std::string in_file_included_from = "In file included from ";
 
   std::string result;
-  for (auto line :
-       util::Tokenizer(text, "\n", util::Tokenizer::Mode::skip_last_empty)) {
+  using util::Tokenizer;
+  for (auto line : Tokenizer(text,
+                             "\n",
+                             Tokenizer::Mode::include_empty,
+                             Tokenizer::IncludeDelimiter::yes)) {
     // Rewrite <path> to <absolute path> in the following two cases, where X may
     // be optional ANSI CSI sequences:
     //
@@ -204,11 +211,11 @@ rewrite_stderr_to_absolute_paths(string_view text)
         result.append(line.data(), line.length());
       }
     }
-    result += '\n';
   }
   return result;
 }
 
+#ifdef _WIN32
 bool
 has_utf16_le_bom(string_view text)
 {
@@ -216,6 +223,7 @@ has_utf16_le_bom(string_view text)
          && ((static_cast<uint8_t>(text[0]) == 0xff
               && static_cast<uint8_t>(text[1]) == 0xfe));
 }
+#endif
 
 } // namespace
 
@@ -628,14 +636,9 @@ get_apparent_cwd(const std::string& actual_cwd)
 
   auto pwd_stat = Stat::stat(pwd);
   auto cwd_stat = Stat::stat(actual_cwd);
-  if (!pwd_stat || !cwd_stat || !pwd_stat.same_inode_as(cwd_stat)) {
-    return actual_cwd;
-  }
-  std::string normalized_pwd = normalize_absolute_path(pwd);
-  return normalized_pwd == pwd
-             || Stat::stat(normalized_pwd).same_inode_as(pwd_stat)
-           ? normalized_pwd
-           : pwd;
+  return !pwd_stat || !cwd_stat || !pwd_stat.same_inode_as(cwd_stat)
+           ? actual_cwd
+           : normalize_concrete_absolute_path(pwd);
 #endif
 }
 
@@ -890,7 +893,8 @@ make_relative_path(const std::string& base_dir,
   const auto real_path = Util::real_path(std::string(path));
 
   const auto add_relpath_candidates = [&](auto path) {
-    const std::string normalized_path = Util::normalize_absolute_path(path);
+    const std::string normalized_path =
+      Util::normalize_abstract_absolute_path(path);
     relpath_candidates.push_back(
       Util::get_relative_path(actual_cwd, normalized_path));
     if (apparent_cwd != actual_cwd) {
@@ -938,7 +942,7 @@ matches_dir_prefix_or_file(string_view dir_prefix_or_file, string_view path)
 }
 
 std::string
-normalize_absolute_path(string_view path)
+normalize_abstract_absolute_path(string_view path)
 {
   if (!util::is_absolute_path(path)) {
     return std::string(path);
@@ -948,7 +952,7 @@ normalize_absolute_path(string_view path)
   if (path.find("\\") != string_view::npos) {
     std::string new_path(path);
     std::replace(new_path.begin(), new_path.end(), '\\', '/');
-    return normalize_absolute_path(new_path);
+    return normalize_abstract_absolute_path(new_path);
   }
 
   std::string drive(path.substr(0, 2));
@@ -994,6 +998,15 @@ normalize_absolute_path(string_view path)
 #else
   return result;
 #endif
+}
+
+std::string
+normalize_concrete_absolute_path(const std::string& path)
+{
+  const auto normalized_path = normalize_abstract_absolute_path(path);
+  return Stat::stat(normalized_path).same_inode_as(Stat::stat(path))
+           ? normalized_path
+           : path;
 }
 
 uint64_t
@@ -1190,7 +1203,12 @@ std::string
 read_text_file(const std::string& path, size_t size_hint)
 {
   std::string result = read_file(path, size_hint);
+#ifdef _WIN32
   // Convert to UTF-8 if the content starts with a UTF-16 little-endian BOM.
+  //
+  // Note that this code assumes a little-endian machine, which is why it's
+  // #ifdef-ed to only run on Windows (which is always little-endian) where it's
+  // actually needed.
   if (has_utf16_le_bom(result)) {
     result.erase(0, 2); // Remove BOM.
     std::u16string result_as_u16((result.size() / 2) + 1, '\0');
@@ -1198,6 +1216,7 @@ read_text_file(const std::string& path, size_t size_hint)
     std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t> converter;
     result = converter.to_bytes(result_as_u16);
   }
+#endif
   return result;
 }
 
@@ -1305,17 +1324,19 @@ setenv(const std::string& name, const std::string& value)
 std::vector<string_view>
 split_into_views(string_view string,
                  const char* separators,
-                 util::Tokenizer::Mode mode)
+                 util::Tokenizer::Mode mode,
+                 IncludeDelimiter include_delimiter)
 {
-  return split_into<string_view>(string, separators, mode);
+  return split_into<string_view>(string, separators, mode, include_delimiter);
 }
 
 std::vector<std::string>
 split_into_strings(string_view string,
                    const char* separators,
-                   util::Tokenizer::Mode mode)
+                   util::Tokenizer::Mode mode,
+                   IncludeDelimiter include_delimiter)
 {
-  return split_into<std::string>(string, separators, mode);
+  return split_into<std::string>(string, separators, mode, include_delimiter);
 }
 
 std::string

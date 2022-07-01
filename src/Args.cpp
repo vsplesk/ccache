@@ -1,4 +1,4 @@
-// Copyright (C) 2020-2021 Joel Rosdahl and other contributors
+// Copyright (C) 2020-2022 Joel Rosdahl and other contributors
 //
 // See doc/AUTHORS.adoc for a complete list of contributors.
 //
@@ -50,7 +50,7 @@ Args::from_string(const std::string& command)
 }
 
 optional<Args>
-Args::from_atfile(const std::string& filename, bool ignore_backslash)
+Args::from_atfile(const std::string& filename, AtFileFormat format)
 {
   std::string argtext;
   try {
@@ -72,17 +72,28 @@ Args::from_atfile(const std::string& filename, bool ignore_backslash)
   while (true) {
     switch (*pos) {
     case '\\':
-      if (ignore_backslash) {
-        break;
-      }
       pos++;
-      if (*pos == '\0') {
-        continue;
+      switch (format) {
+      case AtFileFormat::gcc:
+        if (*pos == '\0') {
+          continue;
+        }
+        break;
+      case AtFileFormat::msvc:
+        if (*pos != '"' && *pos != '\\') {
+          pos--;
+        }
+        break;
       }
       break;
 
-    case '"':
     case '\'':
+      if (format == AtFileFormat::msvc) {
+        break;
+      }
+      // Fall through.
+
+    case '"':
       if (quoting != '\0') {
         if (quoting == *pos) {
           quoting = '\0';

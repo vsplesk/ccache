@@ -1,4 +1,4 @@
-// Copyright (C) 2020-2021 Joel Rosdahl and other contributors
+// Copyright (C) 2020-2022 Joel Rosdahl and other contributors
 //
 // See doc/AUTHORS.adoc for a complete list of contributors.
 //
@@ -30,14 +30,21 @@
 class Args
 {
 public:
+  enum class AtFileFormat {
+    gcc,  // '\'' and '"' quote, '\\' escapes any character
+    msvc, // '"' quotes, '\\' escapes only '"' and '\\'
+  };
+
   Args() = default;
   Args(const Args& other) = default;
   Args(Args&& other) noexcept;
 
   static Args from_argv(int argc, const char* const* argv);
   static Args from_string(const std::string& command);
-  static nonstd::optional<Args> from_atfile(const std::string& filename,
-                                            bool ignore_backslash = false);
+
+  static nonstd::optional<Args>
+  from_atfile(const std::string& filename,
+              AtFileFormat format = AtFileFormat::gcc);
 
   Args& operator=(const Args& other) = default;
   Args& operator=(Args&& other) noexcept;

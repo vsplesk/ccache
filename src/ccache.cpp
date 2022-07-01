@@ -290,7 +290,7 @@ do_remember_include_file(Context& ctx,
     return true;
   }
 
-  if (path == ctx.args_info.input_file) {
+  if (path == ctx.args_info.normalized_input_file) {
     // Don't remember the input file.
     return true;
   }
@@ -559,23 +559,10 @@ process_preprocessed_file(Context& ctx, Hash& hash, const std::string& path)
       if (!ctx.has_absolute_include_headers) {
         ctx.has_absolute_include_headers = util::is_absolute_path(inc_path);
       }
+      inc_path = Util::normalize_concrete_absolute_path(inc_path);
       inc_path = Util::make_relative_path(ctx, inc_path);
 
-      bool should_hash_inc_path = true;
-      if (!ctx.config.hash_dir()) {
-        if (util::starts_with(inc_path, ctx.apparent_cwd)
-            && util::ends_with(inc_path, "//")) {
-          // When compiling with -g or similar, GCC adds the absolute path to
-          // CWD like this:
-          //
-          //   # 1 "CWD//"
-          //
-          // If the user has opted out of including the CWD in the hash, don't
-          // hash it. See also how debug_prefix_map is handled.
-          should_hash_inc_path = false;
-        }
-      }
-      if (should_hash_inc_path) {
+      if ((inc_path != ctx.apparent_cwd) || ctx.config.hash_dir()) {
         hash.hash(inc_path);
       }
 
@@ -596,11 +583,13 @@ process_preprocessed_file(Context& ctx, Hash& hash, const std::string& path)
         "bin directive in source code");
       return nonstd::make_unexpected(
         Failure(Statistic::unsupported_code_directive));
-    } else if (strncmp(q, "___________", 10) == 0) {
+    } else if (strncmp(q, "___________", 10) == 0
+               && (q == data.data() || q[-1] == '\n')) {
       // Unfortunately the distcc-pump wrapper outputs standard output lines:
       // __________Using distcc-pump from /usr/bin
       // __________Using # distcc servers in pump mode
       // __________Shutting down distcc-pump include server
+      hash.hash(p, q - p);
       while (q < end && *q != '\n') {
         q++;
       }
@@ -912,20 +901,34 @@ write_result(Context& ctx,
 static std::string
 rewrite_stdout_from_compiler(const Context& ctx, std::string&& stdout_data)
 {
-  // distcc-pump outputs lines like this:
-  //
-  //   __________Using # distcc servers in pump mode
-  //
-  // We don't want to cache those.
+  using util::Tokenizer;
+  using Mode = Tokenizer::Mode;
+  using IncludeDelimiter = Tokenizer::IncludeDelimiter;
   if (!stdout_data.empty()) {
     std::string new_stdout_text;
-    for (const auto line : util::Tokenizer(
-           stdout_data, "\n", util::Tokenizer::Mode::include_empty)) {
+    for (const auto line : Tokenizer(
+           stdout_data, "\n", Mode::include_empty, IncludeDelimiter::yes)) {
       if (util::starts_with(line, "__________")) {
         Util::send_to_fd(ctx, std::string(line), STDOUT_FILENO);
+      }
+      // Ninja uses the lines with 'Note: including file: ' to determine the
+      // used headers. Headers within basedir need to be changed into relative
+      // paths because otherwise Ninja will use the abs path to original header
+      // to check if a file needs to be recompiled.
+      else if (ctx.config.compiler_type() == CompilerType::msvc
+               && !ctx.config.base_dir().empty()
+               && util::starts_with(line, "Note: including file:")) {
+        std::string orig_line(line.data(), line.length());
+        std::string abs_inc_path =
+          util::replace_first(orig_line, "Note: including file:", "");
+        abs_inc_path = util::strip_whitespace(abs_inc_path);
+        std::string rel_inc_path = Util::make_relative_path(
+          ctx, Util::normalize_concrete_absolute_path(abs_inc_path));
+        std::string line_with_rel_inc =
+          util::replace_first(orig_line, abs_inc_path, rel_inc_path);
+        new_stdout_text.append(line_with_rel_inc);
       } else {
         new_stdout_text.append(line.data(), line.length());
-        new_stdout_text.append("\n");
       }
     }
     return new_stdout_text;
@@ -1070,17 +1073,20 @@ to_cache(Context& ctx,
     Depfile::make_paths_relative_in_output_dep(ctx);
   }
 
-  const auto obj_stat = Stat::stat(ctx.args_info.output_obj);
-  if (!obj_stat) {
-    if (ctx.args_info.expect_output_obj) {
-      LOG_RAW("Compiler didn't produce an object file (unexpected)");
+  Stat obj_stat;
+  if (!ctx.args_info.expect_output_obj) {
+    // Don't probe for object file when we don't expect one since we otherwise
+    // will be fooled by an already existing object file.
+    LOG_RAW("Compiler not expected to produce an object file");
+  } else {
+    obj_stat = Stat::stat(ctx.args_info.output_obj);
+    if (!obj_stat) {
+      LOG_RAW("Compiler didn't produce an object file");
       return nonstd::make_unexpected(Statistic::compiler_produced_no_output);
-    } else {
-      LOG_RAW("Compiler didn't produce an object file (expected)");
+    } else if (obj_stat.size() == 0) {
+      LOG_RAW("Compiler produced an empty object file");
+      return nonstd::make_unexpected(Statistic::compiler_produced_empty_output);
     }
-  } else if (obj_stat.size() == 0) {
-    LOG_RAW("Compiler produced an empty object file");
-    return nonstd::make_unexpected(Statistic::compiler_produced_empty_output);
   }
 
   MTR_BEGIN("result", "result_put");
@@ -1396,6 +1402,16 @@ hash_common_info(const Context& ctx,
     // object file contains a .gcda path based on the object file path.
     hash.hash_delimiter("object file");
     hash.hash(ctx.args_info.output_obj);
+  }
+
+  if (ctx.args_info.generating_coverage
+      && !(ctx.config.sloppiness().is_enabled(core::Sloppy::gcno_cwd))) {
+    // GCC 9+ includes $PWD in the .gcno file. Since we don't have knowledge
+    // about compiler version we always (unless sloppiness is wanted) include
+    // the directory in the hash for now.
+    LOG_RAW("Hashing apparent CWD due to generating a .gcno file");
+    hash.hash_delimiter("CWD in .gcno");
+    hash.hash(ctx.apparent_cwd);
   }
 
   // Possibly hash the coverage data file path.
@@ -1865,17 +1881,17 @@ from_cache(Context& ctx, FromCacheCallMode mode, const Digest& result_key)
     return false;
   }
 
-  File file(*result_path, "rb");
-  core::FileReader file_reader(file.get());
-  core::CacheEntryReader cache_entry_reader(file_reader);
-  Result::Reader result_reader(cache_entry_reader, *result_path);
-  ResultRetriever result_retriever(
-    ctx, should_rewrite_dependency_target(ctx.args_info));
-
   try {
+    File file(*result_path, "rb");
+    core::FileReader file_reader(file.get());
+    core::CacheEntryReader cache_entry_reader(file_reader);
+    Result::Reader result_reader(cache_entry_reader, *result_path);
+    ResultRetriever result_retriever(
+      ctx, should_rewrite_dependency_target(ctx.args_info));
+
     result_reader.read(result_retriever);
   } catch (core::Error& e) {
-    LOG("Failed to get result from cache: {}", e.what());
+    LOG("Failed to get result from {}: {}", *result_path, e.what());
     return false;
   }
 
@@ -2142,6 +2158,15 @@ do_cache_compilation(Context& ctx, const char* const* argv)
   }
 
   TRY(set_up_uncached_err());
+
+  if (ctx.config.is_compiler_group_msvc()) {
+    for (const auto& name : {"CL", "_CL_"}) {
+      if (getenv(name)) {
+        LOG("Unsupported environment variable: {}", name);
+        return Statistic::unsupported_environment_variable;
+      }
+    }
+  }
 
   if (!ctx.config.run_second_cpp() && ctx.config.is_compiler_group_msvc()) {
     LOG_RAW("Second preprocessor cannot be disabled");

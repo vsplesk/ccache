@@ -53,6 +53,9 @@ using nonstd::optional;
 DLLIMPORT extern char** environ;
 #endif
 
+// Make room for binary patching at install time.
+const char k_sysconfdir[4096 + 1] = SYSCONFDIR;
+
 namespace {
 
 enum class ConfigItem {
@@ -271,28 +274,30 @@ parse_sloppiness(const std::string& value)
     end = value.find_first_of(", ", start);
     std::string token =
       util::strip_whitespace(value.substr(start, end - start));
-    if (token == "file_stat_matches") {
+    if (token == "clang_index_store") {
+      result.enable(core::Sloppy::clang_index_store);
+    } else if (token == "file_stat_matches") {
       result.enable(core::Sloppy::file_stat_matches);
     } else if (token == "file_stat_matches_ctime") {
       result.enable(core::Sloppy::file_stat_matches_ctime);
+    } else if (token == "gcno_cwd") {
+      result.enable(core::Sloppy::gcno_cwd);
     } else if (token == "include_file_ctime") {
       result.enable(core::Sloppy::include_file_ctime);
     } else if (token == "include_file_mtime") {
       result.enable(core::Sloppy::include_file_mtime);
-    } else if (token == "system_headers" || token == "no_system_headers") {
-      result.enable(core::Sloppy::system_headers);
-    } else if (token == "pch_defines") {
-      result.enable(core::Sloppy::pch_defines);
-    } else if (token == "time_macros") {
-      result.enable(core::Sloppy::time_macros);
-    } else if (token == "clang_index_store") {
-      result.enable(core::Sloppy::clang_index_store);
+    } else if (token == "ivfsoverlay") {
+      result.enable(core::Sloppy::ivfsoverlay);
     } else if (token == "locale") {
       result.enable(core::Sloppy::locale);
     } else if (token == "modules") {
       result.enable(core::Sloppy::modules);
-    } else if (token == "ivfsoverlay") {
-      result.enable(core::Sloppy::ivfsoverlay);
+    } else if (token == "pch_defines") {
+      result.enable(core::Sloppy::pch_defines);
+    } else if (token == "system_headers" || token == "no_system_headers") {
+      result.enable(core::Sloppy::system_headers);
+    } else if (token == "time_macros") {
+      result.enable(core::Sloppy::time_macros);
     } // else: ignore unknown value for forward compatibility
     start = value.find_first_not_of(", ", end);
   }
@@ -303,17 +308,8 @@ std::string
 format_sloppiness(core::Sloppiness sloppiness)
 {
   std::string result;
-  if (sloppiness.is_enabled(core::Sloppy::include_file_mtime)) {
-    result += "include_file_mtime, ";
-  }
-  if (sloppiness.is_enabled(core::Sloppy::include_file_ctime)) {
-    result += "include_file_ctime, ";
-  }
-  if (sloppiness.is_enabled(core::Sloppy::time_macros)) {
-    result += "time_macros, ";
-  }
-  if (sloppiness.is_enabled(core::Sloppy::pch_defines)) {
-    result += "pch_defines, ";
+  if (sloppiness.is_enabled(core::Sloppy::clang_index_store)) {
+    result += "clang_index_store, ";
   }
   if (sloppiness.is_enabled(core::Sloppy::file_stat_matches)) {
     result += "file_stat_matches, ";
@@ -321,11 +317,17 @@ format_sloppiness(core::Sloppiness sloppiness)
   if (sloppiness.is_enabled(core::Sloppy::file_stat_matches_ctime)) {
     result += "file_stat_matches_ctime, ";
   }
-  if (sloppiness.is_enabled(core::Sloppy::system_headers)) {
-    result += "system_headers, ";
+  if (sloppiness.is_enabled(core::Sloppy::gcno_cwd)) {
+    result += "gcno_cwd, ";
   }
-  if (sloppiness.is_enabled(core::Sloppy::clang_index_store)) {
-    result += "clang_index_store, ";
+  if (sloppiness.is_enabled(core::Sloppy::include_file_ctime)) {
+    result += "include_file_ctime, ";
+  }
+  if (sloppiness.is_enabled(core::Sloppy::include_file_mtime)) {
+    result += "include_file_mtime, ";
+  }
+  if (sloppiness.is_enabled(core::Sloppy::ivfsoverlay)) {
+    result += "ivfsoverlay, ";
   }
   if (sloppiness.is_enabled(core::Sloppy::locale)) {
     result += "locale, ";
@@ -333,8 +335,14 @@ format_sloppiness(core::Sloppiness sloppiness)
   if (sloppiness.is_enabled(core::Sloppy::modules)) {
     result += "modules, ";
   }
-  if (sloppiness.is_enabled(core::Sloppy::ivfsoverlay)) {
-    result += "ivfsoverlay, ";
+  if (sloppiness.is_enabled(core::Sloppy::pch_defines)) {
+    result += "pch_defines, ";
+  }
+  if (sloppiness.is_enabled(core::Sloppy::system_headers)) {
+    result += "system_headers, ";
+  }
+  if (sloppiness.is_enabled(core::Sloppy::time_macros)) {
+    result += "time_macros, ";
   }
   if (!result.empty()) {
     // Strip last ", ".
@@ -491,7 +499,7 @@ Config::read()
 
     set_secondary_config_path(env_ccache_configpath2
                                 ? env_ccache_configpath2
-                                : FMT("{}/ccache.conf", SYSCONFDIR));
+                                : FMT("{}/ccache.conf", k_sysconfdir));
     MTR_BEGIN("config", "conf_read_secondary");
     // A missing config file in SYSCONFDIR is OK so don't check return value.
     update_from_file(secondary_config_path());
@@ -841,7 +849,7 @@ Config::set_item(const std::string& key,
     m_base_dir = Util::expand_environment_variables(value);
     if (!m_base_dir.empty()) { // The empty string means "disable"
       verify_absolute_path(m_base_dir);
-      m_base_dir = Util::normalize_absolute_path(m_base_dir);
+      m_base_dir = Util::normalize_abstract_absolute_path(m_base_dir);
     }
     break;
 
@@ -1041,7 +1049,7 @@ Config::default_temporary_dir(const std::string& cache_dir)
   static const std::string run_user_tmp_dir = [] {
 #ifdef HAVE_GETEUID
     auto dir = FMT("/run/user/{}/ccache-tmp", geteuid());
-    if (Util::create_dir(dir)) {
+    if (Util::create_dir(dir) && access(dir.c_str(), W_OK) == 0) {
       return dir;
     }
 #endif

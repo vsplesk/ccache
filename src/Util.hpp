@@ -276,10 +276,15 @@ bool matches_dir_prefix_or_file(nonstd::string_view dir_prefix_or_file,
 //
 // Normalization here means syntactically removing redundant slashes and
 // resolving "." and ".." parts. The algorithm does however *not* follow
-// symlinks, so the result may not actually resolve to `path`.
+// symlinks, so the result may not actually resolve to the same filesystem entry
+// as `path` (nor to any existing file system entry for that matter).
 //
 // On Windows: Backslashes are replaced with forward slashes.
-std::string normalize_absolute_path(nonstd::string_view path);
+std::string normalize_abstract_absolute_path(nonstd::string_view path);
+
+// Like normalize_abstract_absolute_path, but returns `path` unchanged if the
+// normalized result doesn't resolve to the same file system entry as `path`.
+std::string normalize_concrete_absolute_path(const std::string& path);
 
 // Parse `duration`, an unsigned integer with d (days) or s (seconds) suffix,
 // into seconds. Throws `core::Error` on error.
@@ -357,16 +362,20 @@ size_change_kibibyte(const Stat& old_stat, const Stat& new_stat)
 // Split `string` into tokens at any of the characters in `separators`. These
 // tokens are views into `string`. `separators` must neither be the empty string
 // nor a nullptr.
-std::vector<nonstd::string_view> split_into_views(
-  nonstd::string_view string,
-  const char* separators,
-  util::Tokenizer::Mode mode = util::Tokenizer::Mode::skip_empty);
+std::vector<nonstd::string_view>
+split_into_views(nonstd::string_view string,
+                 const char* separators,
+                 util::Tokenizer::Mode mode = util::Tokenizer::Mode::skip_empty,
+                 util::Tokenizer::IncludeDelimiter include_delimiter =
+                   util::Tokenizer::IncludeDelimiter::no);
 
 // Same as `split_into_views` but the tokens are copied from `string`.
 std::vector<std::string> split_into_strings(
   nonstd::string_view string,
   const char* separators,
-  util::Tokenizer::Mode mode = util::Tokenizer::Mode::skip_empty);
+  util::Tokenizer::Mode mode = util::Tokenizer::Mode::skip_empty,
+  util::Tokenizer::IncludeDelimiter include_delimiter =
+    util::Tokenizer::IncludeDelimiter::no);
 
 // Returns a copy of string with the specified ANSI CSI sequences removed.
 [[nodiscard]] std::string strip_ansi_csi_seqs(nonstd::string_view string);
