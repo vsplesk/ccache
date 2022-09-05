@@ -3,7 +3,7 @@
 # A simple test suite for ccache.
 #
 # Copyright (C) 2002-2007 Andrew Tridgell
-# Copyright (C) 2009-2021 Joel Rosdahl and other contributors
+# Copyright (C) 2009-2022 Joel Rosdahl and other contributors
 #
 # See doc/AUTHORS.adoc for a complete list of contributors.
 #
@@ -33,19 +33,19 @@ if [[ -t 1 ]]; then
 fi
 
 green() {
-    printf "$ansi_boldgreen%s$ansi_reset\n" "$*"
+    echo -e "$ansi_boldgreen$*$ansi_reset"
 }
 
 red() {
-    printf "$ansi_boldred%s$ansi_reset\n" "$*"
+    echo -e "$ansi_boldred$*$ansi_reset"
 }
 
 yellow() {
-    printf "$ansi_boldyellow%s$ansi_reset\n" "$*"
+    echo -e "$ansi_boldyellow$*$ansi_reset"
 }
 
 bold() {
-    printf "$ansi_bold%s$ansi_reset\n" "$*"
+    echo -e "$ansi_bold$*$ansi_reset"
 }
 
 test_failed_internal() {
@@ -270,7 +270,19 @@ expect_content() {
         test_failed_internal "$file not found"
     fi
     if [ "$(cat $file)" != "$content" ]; then
-        test_failed_internal "Bad content of $file.\nExpected: $content\nActual: $(cat $file)"
+        test_failed_internal "Bad content of $file\nExpected: $content\nActual: $(cat $file)"
+    fi
+}
+
+expect_content_pattern() {
+    local file="$1"
+    local pattern="$2"
+
+    if [ ! -e "$file" ]; then
+        test_failed_internal "$file not found"
+    fi
+    if [[ "$(<$file)" != $pattern ]]; then
+        test_failed_internal "Bad content of $file\nExpected pattern: $pattern\nActual: $(<$file)"
     fi
 }
 
@@ -620,7 +632,7 @@ cat >"$COMPILER" <<EOF
 #!/bin/sh
 
 CCACHE_DISABLE=1 CCACHE_COMPILER= CCACHE_PREFIX= \
-  exec $COMPILER_BIN$COMPILER_ARGS "\$@"
+  exec $REAL_COMPILER_BIN$COMPILER_ARGS "\$@"
 EOF
 chmod +x "$COMPILER"
 

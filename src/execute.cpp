@@ -158,9 +158,9 @@ win32execute(const char* path,
     Util::write_fd(*tmp_file.fd, args.data(), args.length());
     if (compiler_type != CompilerType::ctc
         && compiler_type != CompilerType::cctc) {
-      args = FMT("{} @{}", full_path, tmp_file.path);
+      args = FMT(R"("{}" "@{}")", full_path, tmp_file.path);
     } else {
-      args = FMT("{} -f {}", full_path, tmp_file.path);
+      args = FMT(R"("{}" -f "{}")", full_path, tmp_file.path);
     }
     tmp_file_path = tmp_file.path;
     LOG("Arguments from {}", tmp_file.path);

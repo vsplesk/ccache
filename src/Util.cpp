@@ -64,12 +64,6 @@ extern "C" {
 #  include <sys/time.h>
 #endif
 
-#ifdef HAVE_UTIME_H
-#  include <utime.h>
-#elif defined(HAVE_SYS_UTIME_H)
-#  include <sys/utime.h>
-#endif
-
 #ifdef HAVE_LINUX_FS_H
 #  include <linux/magic.h>
 #  include <sys/statfs.h>
@@ -106,6 +100,13 @@ using nonstd::string_view;
 using IncludeDelimiter = util::Tokenizer::IncludeDelimiter;
 
 namespace {
+
+// Process umask, read and written by get_umask and set_umask.
+mode_t g_umask = [] {
+  const mode_t mask = umask(0);
+  umask(mask);
+  return mask;
+}();
 
 // Search for the first match of the following regular expression:
 //
@@ -747,20 +748,11 @@ get_relative_path(string_view dir, string_view path)
   return result.empty() ? "." : result;
 }
 
-#ifndef _WIN32
 mode_t
 get_umask()
 {
-  static bool mask_retrieved = false;
-  static mode_t mask;
-  if (!mask_retrieved) {
-    mask = umask(0);
-    umask(mask);
-    mask_retrieved = true;
-  }
-  return mask;
+  return g_umask;
 }
-#endif
 
 void
 hard_link(const std::string& oldpath, const std::string& newpath)
@@ -1309,6 +1301,13 @@ set_cloexec_flag(int fd)
 #endif
 }
 
+mode_t
+set_umask(mode_t mask)
+{
+  g_umask = mask;
+  return umask(mask);
+}
+
 void
 setenv(const std::string& name, const std::string& value)
 {
@@ -1504,16 +1503,6 @@ unsetenv(const std::string& name)
   ::unsetenv(name.c_str());
 #else
   putenv(strdup(name.c_str())); // Leak to environment.
-#endif
-}
-
-void
-update_mtime(const std::string& path)
-{
-#ifdef HAVE_UTIMES
-  utimes(path.c_str(), nullptr);
-#else
-  utime(path.c_str(), nullptr);
 #endif
 }
 

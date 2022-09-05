@@ -1182,6 +1182,29 @@ EOF
     expect_stat cache_miss 1
 
     # -------------------------------------------------------------------------
+
+    mkdir dir
+    chmod a-w dir
+    if ! touch dir/test 2>/dev/null; then
+        TEST "Failure to write output file"
+
+        mkdir dir
+
+        $CCACHE_COMPILE -c test1.c -o dir/test1.o
+        expect_stat preprocessed_cache_hit 0
+        expect_stat cache_miss 1
+        expect_stat bad_output_file 0
+
+        rm dir/test1.o
+        chmod a-w dir
+
+        $CCACHE_COMPILE -c test1.c -o dir/test1.o 2>/dev/null
+        expect_stat preprocessed_cache_hit 0
+        expect_stat cache_miss 1
+        expect_stat bad_output_file 1
+    fi
+
+    # -------------------------------------------------------------------------
     TEST "Caching stderr"
 
     cat <<EOF >stderr.c
@@ -1324,6 +1347,30 @@ EOF
     expect_stat called_for_preprocessing 1
 
     # -------------------------------------------------------------------------
+    if $COMPILER -c -Wa,-a test1.c >&/dev/null; then
+        TEST "-Wa,-a"
+
+        $CCACHE_COMPILE -c -Wa,-a test1.c >first.lst
+        expect_stat preprocessed_cache_hit 0
+        expect_stat cache_miss 1
+
+        $CCACHE_COMPILE -c -Wa,-a test1.c >second.lst
+        expect_stat preprocessed_cache_hit 1
+        expect_stat cache_miss 1
+        expect_equal_content first.lst second.lst
+    fi
+
+    # -------------------------------------------------------------------------
+    if $COMPILER -c -Wa,-a=test1.lst test1.c >&/dev/null; then
+        TEST "-Wa,-a=file"
+
+        $CCACHE_COMPILE -c -Wa,-a=test1.lst test1.c
+        expect_stat preprocessed_cache_hit 0
+        expect_stat cache_miss 0
+        expect_stat unsupported_compiler_option 1
+    fi
+
+    # -------------------------------------------------------------------------
     TEST "-Wp,-P"
 
     $CCACHE_COMPILE -c -Wp,-P test1.c
@@ -1374,7 +1421,7 @@ EOF
 
     cat >compiler.sh <<EOF
 #!/bin/sh
-printf "[%s]" "\$*" >>compiler.args
+printf "(%s)" "\$*" >>compiler.args
 [ \$1 = -E ] && echo test || echo test >test1.o
 EOF
     chmod +x compiler.sh
@@ -1385,7 +1432,7 @@ EOF
     expect_stat cache_miss 1
     expect_stat files_in_cache 1
     if [ -z "$CCACHE_NOCPP2" ]; then
-        expect_content compiler.args "[-E test1.c][-c -o test1.o test1.c]"
+        expect_content_pattern compiler.args "(-E -o * test1.c)(-c -o test1.o test1.c)"
     fi
     rm compiler.args
 
@@ -1393,7 +1440,7 @@ EOF
     expect_stat preprocessed_cache_hit 1
     expect_stat cache_miss 1
     expect_stat files_in_cache 1
-    expect_content compiler.args "[-E test1.c]"
+    expect_content_pattern compiler.args "(-E -o * test1.c)"
     rm compiler.args
 
     # Even though -Werror is not passed to the preprocessor, it should be part
@@ -1403,7 +1450,7 @@ EOF
     expect_stat cache_miss 2
     expect_stat files_in_cache 2
     if [ -z "$CCACHE_NOCPP2" ]; then
-        expect_content compiler.args "[-E test1.c][-Werror -rdynamic -c -o test1.o test1.c]"
+        expect_content_pattern compiler.args "(-E -o * test1.c)(-Werror -rdynamic -c -o test1.o test1.c)"
     fi
     rm compiler.args
 
@@ -1469,6 +1516,15 @@ EOF
     expect_stat cache_miss 0
     expect_stat unsupported_code_directive 1
 
+    cat <<EOF >incbin.c
+__asm__(".incbin" " \"empty.bin\"");
+EOF
+
+    $CCACHE_COMPILE -c incbin.c
+    expect_stat preprocessed_cache_hit 0
+    expect_stat cache_miss 0
+    expect_stat unsupported_code_directive 2
+
     cat <<EOF >incbin.s
 .incbin "empty.bin";
 EOF
@@ -1476,7 +1532,7 @@ EOF
     $CCACHE_COMPILE -c incbin.s
     expect_stat preprocessed_cache_hit 0
     expect_stat cache_miss 0
-    expect_stat unsupported_code_directive 2
+    expect_stat unsupported_code_directive 3
 
     cat <<EOF >incbin.cpp
       struct A {
@@ -1491,7 +1547,7 @@ EOF
     if $CCACHE_COMPILE -x c++ -c incbin.cpp 2>/dev/null; then
         expect_stat preprocessed_cache_hit 0
         expect_stat cache_miss 1
-        expect_stat unsupported_code_directive 2
+        expect_stat unsupported_code_directive 3
     fi
 fi
 

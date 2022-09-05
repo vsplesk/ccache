@@ -36,7 +36,9 @@ set(functions
     strndup
     syslog
     unsetenv
-    utimes)
+    utimensat
+    utimes
+)
 foreach(func IN ITEMS ${functions})
   string(TOUPPER ${func} func_var)
   set(func_var HAVE_${func_var})
@@ -66,6 +68,12 @@ check_struct_has_member("struct stat" st_ctim sys/stat.h
                         HAVE_STRUCT_STAT_ST_CTIM LANGUAGE CXX)
 check_struct_has_member("struct stat" st_mtim sys/stat.h
                         HAVE_STRUCT_STAT_ST_MTIM LANGUAGE CXX)
+check_struct_has_member("struct stat" st_atimespec sys/stat.h
+                        HAVE_STRUCT_STAT_ST_ATIMESPEC LANGUAGE CXX)
+check_struct_has_member("struct stat" st_ctimespec sys/stat.h
+                        HAVE_STRUCT_STAT_ST_CTIMESPEC LANGUAGE CXX)
+check_struct_has_member("struct stat" st_mtimespec sys/stat.h
+                        HAVE_STRUCT_STAT_ST_MTIMESPEC LANGUAGE CXX)
 check_struct_has_member("struct statfs" f_fstypename sys/mount.h
                         HAVE_STRUCT_STATFS_F_FSTYPENAME LANGUAGE CXX)
 
@@ -102,7 +110,7 @@ endif()
 # alias
 set(MTR_ENABLED "${ENABLE_TRACING}")
 
-if(HAVE_SYS_MMAN_H AND HAVE_PTHREAD_MUTEXATTR_SETPSHARED)
+if(HAVE_SYS_MMAN_H AND HAVE_PTHREAD_MUTEXATTR_SETPSHARED AND (HAVE_STRUCT_STAT_ST_MTIM OR HAVE_STRUCT_STAT_ST_MTIMESPEC))
   set(INODE_CACHE_SUPPORTED 1)
 endif()
 

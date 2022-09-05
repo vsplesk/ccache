@@ -425,6 +425,13 @@ process_arg(const Context& ctx,
     ++i;
   }
 
+  if (util::starts_with(args[i], "-Wa,")
+      && args[i].find('=') != std::string::npos) {
+    LOG("Assembler listing file (-Wa,...=file) is currently not supported: {}",
+        args[i]);
+    return Statistic::unsupported_compiler_option;
+  }
+
   // Handle options that should not be passed to the preprocessor.
   if (compopt_affects_compiler_output(args[i])) {
     state.compiler_only_args.push_back(args[i]);
@@ -787,7 +794,8 @@ process_arg(const Context& ctx,
   if (util::starts_with(args[i], "-Wp,")) {
     if (args[i].find(",-P,") != std::string::npos
         || util::ends_with(args[i], ",-P")) {
-      // -P together with other preprocessor options is just too hard.
+      LOG("-P together with other preprocessor options is too hard: {}",
+          args[i]);
       return Statistic::unsupported_compiler_option;
     } else if (util::starts_with(args[i], "-Wp,-MD,")
                && args[i].find(',', 8) == std::string::npos) {
@@ -853,43 +861,39 @@ process_arg(const Context& ctx,
     return nullopt;
   }
 
-  if (config.compiler_type() == CompilerType::gcc
-      && (args[i] == "-fcolor-diagnostics"
-          || args[i] == "-fno-color-diagnostics")) {
-    // Special case: If a GCC compiler gets -f(no-)color-diagnostics we'll bail
-    // out and just execute the compiler. The reason is that we don't include
-    // -f(no-)color-diagnostics in the hash so there can be a false cache hit in
-    // the following scenario:
-    //
-    //   1. ccache gcc -c example.c                      # adds a cache entry
-    //   2. ccache gcc -c example.c -fcolor-diagnostics  # unexpectedly succeeds
-    return Statistic::unsupported_compiler_option;
-  }
-
-  // In the "-Xclang -fcolor-diagnostics" form, -Xclang is skipped and the
-  // -fcolor-diagnostics argument which is passed to cc1 is handled below.
-  if (args[i] == "-Xclang" && i + 1 < args.size()
-      && args[i + 1] == "-fcolor-diagnostics") {
-    state.compiler_only_args_no_hash.push_back(args[i]);
-    ++i;
-  }
-
-  if (args[i] == "-fcolor-diagnostics" || args[i] == "-fdiagnostics-color"
-      || args[i] == "-fdiagnostics-color=always") {
-    state.color_diagnostics = ColorDiagnostics::always;
-    state.compiler_only_args_no_hash.push_back(args[i]);
-    return nullopt;
-  }
-  if (args[i] == "-fno-color-diagnostics" || args[i] == "-fno-diagnostics-color"
-      || args[i] == "-fdiagnostics-color=never") {
-    state.color_diagnostics = ColorDiagnostics::never;
-    state.compiler_only_args_no_hash.push_back(args[i]);
-    return nullopt;
-  }
-  if (args[i] == "-fdiagnostics-color=auto") {
-    state.color_diagnostics = ColorDiagnostics::automatic;
-    state.compiler_only_args_no_hash.push_back(args[i]);
-    return nullopt;
+  if (config.compiler_type() == CompilerType::gcc) {
+    if (args[i] == "-fdiagnostics-color"
+        || args[i] == "-fdiagnostics-color=always") {
+      state.color_diagnostics = ColorDiagnostics::always;
+      state.compiler_only_args_no_hash.push_back(args[i]);
+      return nullopt;
+    } else if (args[i] == "-fno-diagnostics-color"
+               || args[i] == "-fdiagnostics-color=never") {
+      state.color_diagnostics = ColorDiagnostics::never;
+      state.compiler_only_args_no_hash.push_back(args[i]);
+      return nullopt;
+    } else if (args[i] == "-fdiagnostics-color=auto") {
+      state.color_diagnostics = ColorDiagnostics::automatic;
+      state.compiler_only_args_no_hash.push_back(args[i]);
+      return nullopt;
+    }
+  } else if (config.is_compiler_group_clang()) {
+    // In the "-Xclang -fcolor-diagnostics" form, -Xclang is skipped and the
+    // -fcolor-diagnostics argument which is passed to cc1 is handled below.
+    if (args[i] == "-Xclang" && i + 1 < args.size()
+        && args[i + 1] == "-fcolor-diagnostics") {
+      state.compiler_only_args_no_hash.push_back(args[i]);
+      ++i;
+    }
+    if (args[i] == "-fcolor-diagnostics") {
+      state.color_diagnostics = ColorDiagnostics::always;
+      state.compiler_only_args_no_hash.push_back(args[i]);
+      return nullopt;
+    } else if (args[i] == "-fno-color-diagnostics") {
+      state.color_diagnostics = ColorDiagnostics::never;
+      state.compiler_only_args_no_hash.push_back(args[i]);
+      return nullopt;
+    }
   }
 
   // GCC
@@ -973,8 +977,10 @@ process_arg(const Context& ctx,
   }
 
   // Detect PCH for options with concatenated path (relative or absolute).
-  if (util::starts_with(args[i], "-Fp") || util::starts_with(args[i], "-Yu")) {
-    const size_t path_pos = 3;
+  if (util::starts_with(args[i], "-include")
+      || util::starts_with(args[i], "-Fp")
+      || util::starts_with(args[i], "-Yu")) {
+    const size_t path_pos = util::starts_with(args[i], "-include") ? 8 : 3;
     if (!detect_pch(args[i].substr(0, path_pos),
                     args[i].substr(path_pos),
                     args_info.included_pch_file,

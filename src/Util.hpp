@@ -188,10 +188,8 @@ const char* get_hostname();
 std::string get_relative_path(nonstd::string_view dir,
                               nonstd::string_view path);
 
-#ifndef _WIN32
 // Get process umask.
 mode_t get_umask();
-#endif
 
 // Hard-link `oldpath` to `newpath`. Throws `core::Error` on error.
 void hard_link(const std::string& oldpath, const std::string& newpath);
@@ -347,6 +345,9 @@ void send_to_fd(const Context& ctx, const std::string& text, int fd);
 // Set the FD_CLOEXEC on file descriptor `fd`. This is a NOP on Windows.
 void set_cloexec_flag(int fd);
 
+// Set process umask. Returns the previous mask.
+mode_t set_umask(mode_t mask);
+
 // Set environment variable `name` to `value`.
 void setenv(const std::string& name, const std::string& value);
 
@@ -406,9 +407,6 @@ bool unlink_tmp(const std::string& path,
 
 // Unset environment variable `name`.
 void unsetenv(const std::string& name);
-
-// Set mtime of `path` to the current timestamp.
-void update_mtime(const std::string& path);
 
 // Remove `path` (and its contents if it's a directory). A nonexistent path is
 // not considered an error.
